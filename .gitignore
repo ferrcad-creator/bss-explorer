@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Environnement virtuel
+.venv/
+venv/
+env/
+.env
+*.env
+
+# Secrets Streamlit (NE JAMAIS committer)
+.streamlit/secrets.toml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Docker
+.dockerignore
+
+# Données temporaires
+/tmp/
+*.tmp
+*.bak
+
+# Sauvegardes
+sauvegardes/
+backups/
