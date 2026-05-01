@@ -556,15 +556,9 @@ def render_result_tabs(result: dict, site_input: dict):
         izs = geo.get("zone_sismique", "N/A") or "N/A"
         st.metric("IZS", izs)
     with m3:
-        # IARGA — valeur complète en texte réduit pour lisibilité totale
+        # IARGA — st.metric standard (même taille que les autres métriques)
         iarga = geo.get("alea_rga", "N/A") or "N/A"
-        st.markdown(
-            f'<div style="padding:4px 0;">'  
-            f'<div style="font-size:11px;color:#888;font-weight:500;margin-bottom:2px;">IARGA</div>'
-            f'<div style="font-size:12px;font-weight:700;color:#e0e0e0;line-height:1.3;word-break:break-word;">{iarga}</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+        st.metric("IARGA", iarga)
     with m4:
         if closest:
             st.metric("DOuvPC", f"{closest.get('distance_centre_m', 0):.0f} m")
