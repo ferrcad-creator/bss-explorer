@@ -566,7 +566,87 @@ def scrape_georisques(lat: float, lon: float, log) -> dict:
         log(f"    Géorisques inondation erreur : {e}")
         result["zone_inondable"] = "N/D"
 
-    log(f"  Géorisques : sismique={result['zone_sismique']} | RGA={result['alea_rga']} | inondation={result.get('zone_inondable', 'N/D')}")
+    # ── Profondeur Hors Gel Fondations (PHGF) ───────────────────────────────
+    # Source : NF P 94-261 / DTU 13.1
+    # Formule : H = H0 + (A - 150) / 4000  si A > 150 m
+    # H0 dépend de la zone climatique (département)
+    # Altitude récupérée via Open-Meteo Elevation API
+    try:
+        log("  PHGF : calcul profondeur hors gel…")
+        # 1. Récupérer le département via geo.api.gouv.fr
+        resp_dept = requests.get(
+            "https://geo.api.gouv.fr/communes",
+            params={"lat": lat, "lon": lon, "fields": "codeDepartement", "limit": 1},
+            timeout=10,
+            headers={"User-Agent": USER_AGENT},
+        )
+        dept_code = ""
+        if resp_dept.status_code == 200 and resp_dept.json():
+            dept_code = resp_dept.json()[0].get("codeDepartement", "")
+
+        # 2. Récupérer l'altitude via Open-Meteo
+        resp_alt = requests.get(
+            "https://api.open-meteo.com/v1/elevation",
+            params={"latitude": lat, "longitude": lon},
+            timeout=10,
+        )
+        altitude = None
+        if resp_alt.status_code == 200:
+            elev_data = resp_alt.json()
+            elevations = elev_data.get("elevation", [])
+            if elevations:
+                altitude = elevations[0]
+
+        # 3. Table H0 par département (NF P 94-261 / DTU 13.12)
+        DEPT_H0 = {
+            # Zone 1 — Gel faible (0.50 m)
+            "06": 0.50, "11": 0.50, "13": 0.50, "17": 0.50, "2A": 0.50, "2B": 0.50,
+            "22": 0.50, "29": 0.50, "30": 0.50, "33": 0.50, "34": 0.50, "40": 0.50,
+            "44": 0.50, "56": 0.50, "64": 0.50, "66": 0.50, "83": 0.50, "85": 0.50,
+            # Zone 3 — Gel sévère (0.80 m)
+            "02": 0.80, "03": 0.80, "08": 0.80, "10": 0.80, "15": 0.80, "23": 0.80,
+            "25": 0.80, "39": 0.80, "51": 0.80, "52": 0.80, "54": 0.80, "55": 0.80,
+            "57": 0.80, "59": 0.80, "60": 0.80, "62": 0.80, "70": 0.80, "80": 0.80,
+            "88": 0.80, "90": 0.80,
+            # Zone 4 — Gel très sévère (0.90 m)
+            "04": 0.90, "05": 0.90, "65": 0.90, "67": 0.90, "68": 0.90,
+            "73": 0.90, "74": 0.90,
+        }
+        # Défaut zone 2 (0.60 m) pour les départements non listés
+        h0 = DEPT_H0.get(dept_code, 0.60)
+
+        # 4. Calcul PHGF
+        if altitude is not None and altitude > 150:
+            phgf = h0 + (altitude - 150) / 4000
+        else:
+            phgf = h0
+        phgf = round(max(phgf, 0.50), 2)
+
+        # Zone label
+        if h0 <= 0.50:
+            zone_label = "Zone 1 (gel faible)"
+        elif h0 <= 0.60:
+            zone_label = "Zone 2 (gel modéré)"
+        elif h0 <= 0.80:
+            zone_label = "Zone 3 (gel sévère)"
+        else:
+            zone_label = "Zone 4 (gel très sévère)"
+
+        result["PHGF"] = phgf
+        result["PHGF_cm"] = int(phgf * 100)
+        result["zone_gel"] = zone_label
+        result["H0_gel"] = h0
+        result["altitude_site"] = altitude
+        result["dept_code"] = dept_code
+
+        log(f"  PHGF : {phgf:.2f} m ({int(phgf*100)} cm) | {zone_label} | H0={h0} m | Alt={altitude} m | Dépt={dept_code}")
+    except Exception as e:
+        log(f"    PHGF erreur : {e}")
+        result["PHGF"] = None
+        result["PHGF_cm"] = None
+        result["zone_gel"] = "N/D"
+
+    log(f"  Géorisques : sismique={result['zone_sismique']} | RGA={result['alea_rga']} | inondation={result.get('zone_inondable', 'N/D')} | PHGF={result.get('PHGF', 'N/D')} m")
     return result
 
 

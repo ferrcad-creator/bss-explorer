@@ -19,6 +19,11 @@ Paramètres de sortie JSON :
   PPRI_zone   = Libellé de la zone réglementaire
   PPRI_alea   = Niveau d'aléa inondation (Fort/Moyen/Précaution/Prescriptions)
   PPRI_reglement = Libellé du règlement standardisé
+  PHGF_m      = Profondeur Hors Gel Fondations (m) — NF P 94-261
+  PHGF_cm     = Profondeur Hors Gel Fondations (cm)
+  zone_gel    = Zone climatique de gel (Zone 1 à 4)
+  H0_gel_m    = Valeur H0 lue sur la carte (m)
+  altitude_site_m = Altitude du site (m NGF) via Open-Meteo
   ouvrages[]:
     COM         = Commune
     BDCE        = Bassin DCE
@@ -158,6 +163,11 @@ def build_output_json(result: dict, site_input: dict) -> dict:
         "PPRI_zone": geo.get("ppri_zone", ""),
         "PPRI_alea": geo.get("niveau_alea_inondation", ""),
         "PPRI_reglement": geo.get("ppri_reglement", ""),
+        "PHGF_m":   geo.get("PHGF"),
+        "PHGF_cm":  geo.get("PHGF_cm"),
+        "zone_gel": geo.get("zone_gel", ""),
+        "H0_gel_m": geo.get("H0_gel"),
+        "altitude_site_m": geo.get("altitude_site"),
         "ouvrages":  ouvrages_out,
     }
     return output
@@ -247,7 +257,7 @@ with st.sidebar:
     else:
         st.warning("Base de données non connectée")
     st.markdown("---")
-    st.caption("BSS Explorer v14 — FERRAPD\nDonnées : BRGM / Géorisques / ADES")
+    st.caption("BSS Explorer v15 — FERRAPD\nDonnées : BRGM / Géorisques / ADES")
 
 
 # ─── Fonctions d'affichage ────────────────────────────────────────────────────
@@ -340,6 +350,12 @@ def build_folium_map(ouvrages: list, lat_centre: float, lon_centre: float,
                     zi_txt += f"<br><span style='font-size:10px;color:#999;'>{ppri_z}</span>"
             geo_html += f'<tr><td style="color:#666;font-size:11px;">IZINOND</td><td style="font-size:11px;"><b style="color:{zi_col};">{zi_txt}</b></td></tr>'
 
+        # PHGF dans le popup
+        phgf_v = geo.get("PHGF")
+        if phgf_v is not None:
+            phgf_zone = geo.get("zone_gel", "")
+            geo_html += f'<tr><td style="color:#666;font-size:11px;">PHGF</td><td style="font-size:11px;"><b style="color:#60a5fa;">{phgf_v:.2f} m</b> <span style="font-size:10px;color:#999;">{phgf_zone}</span></td></tr>'
+
         prof_tot = o.get("profondeur_totale")
         prof_inv = o.get("prof_investigation")
         niv_eau  = o.get("niveau_eau")
@@ -420,12 +436,19 @@ def build_folium_map(ouvrages: list, lat_centre: float, lon_centre: float,
                 zi_extra += f'<br><span style="font-size:10px;color:#666;">PPRI : {ppri}</span>'
             if zone_lib:
                 zi_extra += f'<br><span style="font-size:10px;color:#666;">{zone_lib}</span>'
+        # PHGF pour la légende
+        phgf_legend = ""
+        phgf_v = georisques.get("PHGF")
+        if phgf_v is not None:
+            phgf_legend = f'<div style="font-size:11px;color:#111;">PHGF : <b style="color:#2563eb;">{phgf_v:.2f} m</b> <span style="font-size:10px;color:#666;">({georisques.get("zone_gel","")})</span></div>'
+
         geo_legend = (
             f'<hr style="border-color:#ccc;margin:6px 0;">'
             f'<div style="font-size:12px;color:#111;font-weight:600;margin-bottom:4px;">⚡ Géorisques</div>'
             f'<div style="font-size:11px;color:#111;">IZS : <b>{georisques.get("zone_sismique","N/D")}</b></div>'
             f'<div style="font-size:11px;color:#111;">IARGA : <b>{georisques.get("alea_rga","N/D")}</b></div>'
             f'<div style="font-size:11px;color:#111;">IZINOND : <b style="color:{zi_color};">{zi}{zi_extra}</b></div>'
+            f'{phgf_legend}'
         )
     legend_html = f"""
 <div style="position:fixed;bottom:30px;left:30px;z-index:1000;background:rgba(255,255,255,0.97);
@@ -729,7 +752,7 @@ InfoTerre     : http://ficheinfoterre.brgm.fr
 Géorisques    : https://www.georisques.gouv.fr
 ADES          : https://ades.eaufrance.fr
 
-© FERRAPD — BSS Explorer v14
+© FERRAPD — BSS Explorer v15
 """
         zf.writestr("README.txt", readme.encode('utf-8'))
 
@@ -874,7 +897,7 @@ InfoTerre     : http://ficheinfoterre.brgm.fr
 Géorisques    : https://www.georisques.gouv.fr
 ADES          : https://ades.eaufrance.fr
 
-© FERRAPD — BSS Explorer v14
+© FERRAPD — BSS Explorer v15
 """
         zf.writestr("README.txt", readme.encode('utf-8'))
 
@@ -895,7 +918,7 @@ def render_result_tabs(result: dict, site_input: dict):
     nb_logs = sum(1 for o in ouvrages if o.get("log_geologique"))
 
     # ── Métriques ──────────────────────────────────────────────────────────────────────
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
     with m1:
         st.metric("NOuv", result.get("nb_ouvrages", 0))
     with m2:
@@ -926,9 +949,25 @@ def render_result_tabs(result: dict, site_input: dict):
             unsafe_allow_html=True,
         )
     with m5:
+        # PHGF — Profondeur Hors Gel Fondations
+        phgf_val = geo.get("PHGF")
+        phgf_zone = geo.get("zone_gel", "N/D")
+        if phgf_val is not None:
+            phgf_str = f"{phgf_val:.2f} m"
+            phgf_detail = f"<br><span style='font-size:10px;color:rgba(250,250,250,0.5);'>{phgf_zone}</span>"
+        else:
+            phgf_str = "N/D"
+            phgf_detail = ""
+        st.markdown(
+            '<p style="font-size:11px;color:rgba(250,250,250,0.6);margin:0 0 4px 0;">PHGF</p>'
+            f'<p style="font-size:13px;font-weight:700;color:#60a5fa;margin:0;line-height:1.3;">'
+            f'{phgf_str}{phgf_detail}</p>',
+            unsafe_allow_html=True,
+        )
+    with m6:
         if closest:
             st.metric("DOuvPC", f"{closest.get('distance_centre_m', 0):.0f} m")
-    with m6:
+    with m7:
         st.metric("NOuvALog", nb_logs)
 
     # ── Ouvrage le plus proche ─────────────────────────────────────────────────
@@ -1400,6 +1439,9 @@ elif page == "ℹ️ À propos":
 | [BRGM WFS](https://geoservices.brgm.fr/geologie) | Ouvrages BSS (forages, piézomètres, puits) |
 | [InfoTerre BRGM](http://ficheinfoterre.brgm.fr) | Fiches détaillées (AltOuv, log géologique, PIOuv, PeS, documents numérisés) |
 | [Géorisques](https://www.georisques.gouv.fr) | IZS (zone sismique), IARGA (aléa RGA), IZINOND (zone inondable PPRI) |
+| [Open-Meteo Elevation](https://open-meteo.com) | Altitude du site (m NGF) pour le calcul PHGF |
+| [geo.api.gouv.fr](https://geo.api.gouv.fr) | Département du site (pour zone de gel NF P 94-261) |
+| NF P 94-261 / DTU 13.1 | Formule PHGF : H = H0 + (A−150)/4000 |
 | [ADES](https://ades.eaufrance.fr) | Données piézométriques nationales |
 
 ### Nomenclature des paramètres
@@ -1426,6 +1468,11 @@ elif page == "ℹ️ À propos":
 | `PPRI_zone` | Libellé de la zone réglementaire | — |
 | `PPRI_alea` | Niveau d'aléa inondation | Fort / Moyen / Précaution / Prescriptions |
 | `PPRI_reglement` | Libellé du règlement standardisé | — |
+| `PHGF_m` | Profondeur Hors Gel Fondations | m |
+| `PHGF_cm` | Profondeur Hors Gel Fondations | cm |
+| `zone_gel` | Zone climatique de gel | Zone 1 à 4 |
+| `H0_gel_m` | Valeur H0 carte NF P 94-261 | m |
+| `altitude_site_m` | Altitude du site | m NGF |
 
 **Sortie JSON (par ouvrage) :**
 
@@ -1446,5 +1493,5 @@ elif page == "ℹ️ À propos":
 | `FAOuv_{{code_bss}}` | Dossier des documents numérisés | — |
 
 ### Version
-BSS Explorer v14 — Build {datetime.now().strftime('%Y-%m-%d')}
+BSS Explorer v15 — Build {datetime.now().strftime('%Y-%m-%d')}
 """)
