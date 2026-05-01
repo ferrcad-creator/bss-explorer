@@ -349,9 +349,12 @@ def build_folium_map(ouvrages: list, lat_centre: float, lon_centre: float,
 
         popup_html = f"""
 <div style="font-family:Inter,sans-serif;min-width:320px;max-width:460px;">
-  <div style="background:linear-gradient(135deg,#0f2d4a,#1e3a5f);color:#fff;padding:10px 14px;border-radius:6px 6px 0 0;">
-    <div style="font-size:14px;font-weight:700;">{APP_ICON} {o.get("code_bss","")}</div>
-    <div style="font-size:11px;opacity:0.8;">{o.get("nature","")} — {o.get("nom_commune","")}</div>
+  <div style="background:linear-gradient(135deg,#0f2d4a,#1e3a5f);color:#fff;padding:10px 14px;border-radius:6px 6px 0 0;display:flex;align-items:center;gap:10px;">
+    <img src="{FERRAPD_ICONE_URL}" width="32" height="32" style="border-radius:6px;flex-shrink:0;" alt="FERRAPD" />
+    <div>
+      <div style="font-size:14px;font-weight:700;">{o.get("code_bss","")}</div>
+      <div style="font-size:11px;opacity:0.8;">{o.get("nature","")} — {o.get("nom_commune","")}</div>
+    </div>
   </div>
   <div style="padding:12px;background:#fff;">
     <table style="width:100%;border-collapse:collapse;">
@@ -734,6 +737,151 @@ ADES          : https://ades.eaufrance.fr
     return zip_buffer.getvalue()
 
 
+def build_batch_zip(results: list) -> tuple:
+    """
+    Construit un ZIP en mémoire avec un dossier par site.
+    Structure :
+      BSS_BATCH_{date}/
+        {CS_1}/
+          BSS_{CS_1}_{date}.json
+          BSS_{CS_1}_{date}.csv
+          documents/{code_bss}/{fichier}
+        {CS_2}/
+          ...
+        README.txt
+    Retourne (zip_bytes, total_docs, total_ouvrages).
+    """
+    import requests as req_lib
+
+    _ts = datetime.now().strftime('%Y-%m-%d_%Hh%M')
+    total_docs = 0
+    total_ouvrages = 0
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        site_summaries = []
+
+        for result in results:
+            if not result.get("success"):
+                continue
+
+            site_input = result.get("input", {})
+            ouvrages = result.get("ouvrages", [])
+            geo = result.get("georisques", {}) or {}
+            cs = site_input.get("CS", site_input.get("code_site", "site"))
+            cs_clean = (cs or 'site').replace('/', '-').replace(' ', '_')
+            lat_c = site_input.get("LaOPY", site_input.get("lat", 0))
+            lon_c = site_input.get("LoOPY", site_input.get("lon", 0))
+            emprise = site_input.get("emprise_m", 2000)
+
+            folder = cs_clean
+            total_ouvrages += len(ouvrages)
+
+            # 1. JSON
+            output_json = build_output_json(result, site_input)
+            json_str = json.dumps(output_json, ensure_ascii=False, indent=2, default=str)
+            zf.writestr(f"{folder}/BSS_{cs_clean}_{_ts}.json", json_str.encode('utf-8'))
+
+            # 2. CSV
+            csv_lines = [
+                "code_bss;NInv;COM;LaOPY;LoOPY;PIOuv(m);PeS(m);Date_PeS;AltOuv(mNGF);"
+                "Aquifere;BDCE;DOuvPC(m);NCALOuv;NDAOuv;url_infoterre;url_ades"
+            ]
+            for o in ouvrages:
+                csv_lines.append(";".join([
+                    f'"{ o.get("code_bss","")}"',
+                    f'"{ o.get("nature","")}"',
+                    f'"{ o.get("nom_commune", o.get("commune",""))}"',
+                    str(o.get("lat", "")),
+                    str(o.get("lon", "")),
+                    str(o.get("prof_investigation", "")),
+                    str(o.get("niveau_eau", "")),
+                    f'"{ o.get("niveau_eau_date","")}"',
+                    str(o.get("altitude_ngf", "")),
+                    f'"{ o.get("aquifere","")}"',
+                    f'"{ o.get("bassin_dce","")}"',
+                    f'{o.get("distance_centre_m", 0):.0f}',
+                    str(len(o.get("log_geologique", []))),
+                    str(len(o.get("documents", []))),
+                    f'"{ o.get("url_infoterre","")}"',
+                    f'"{ o.get("url_ades","")}"',
+                ]))
+            zf.writestr(f"{folder}/BSS_{cs_clean}_{_ts}.csv",
+                        ("\ufeff" + "\n".join(csv_lines)).encode('utf-8'))
+
+            # 3. Documents InfoTerre par ouvrage
+            site_doc_count = 0
+            for o in ouvrages:
+                docs = o.get("documents", [])
+                if not docs:
+                    continue
+                code_bss = o.get("code_bss", "inconnu")
+                safe_code = code_bss.replace("/", "_").replace(" ", "_")
+
+                for idx, d in enumerate(docs, start=1):
+                    url = d.get("url", "")
+                    nom = d.get("nom", f"doc_{idx}")
+                    if not url or url == "#":
+                        continue
+                    scan_name = d.get("scan_name", "")
+                    if scan_name:
+                        filename = scan_name
+                    else:
+                        filename = nom.replace(" ", "_").replace("/", "_")
+                        if not any(filename.lower().endswith(ext) for ext in ('.pdf', '.tif', '.tiff', '.jpg', '.png')):
+                            filename += ".pdf"
+                    try:
+                        resp = req_lib.get(url, timeout=15, stream=True)
+                        if resp.status_code == 200:
+                            zf.writestr(f"{folder}/documents/{safe_code}/{filename}", resp.content)
+                            site_doc_count += 1
+                    except Exception:
+                        pass
+
+            total_docs += site_doc_count
+            zi = geo.get('zone_inondable', 'N/A')
+            site_summaries.append(
+                f"  {cs_clean:30s}  {len(ouvrages):3d} ouvrages  {site_doc_count:3d} docs  "
+                f"IZS={geo.get('zone_sismique','N/A'):12s}  IZINOND={zi}"
+            )
+
+        # README global
+        readme = f"""BSS Explorer — Export batch avec documents
+======================================================
+Nombre de sites : {len([r for r in results if r.get('success')])}
+Total ouvrages  : {total_ouvrages}
+Total documents : {total_docs}
+Exporté le      : {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+Résumé par site
+--------------
+{chr(10).join(site_summaries)}
+
+Structure du ZIP
+----------------
+{{code_site}}/
+  BSS_{{code_site}}_{_ts}.json   — Données complètes
+  BSS_{{code_site}}_{_ts}.csv    — Tableau CSV (séparateur ; — Excel)
+  documents/
+    {{code_bss}}/
+      {{nom_document}}.tif/.pdf
+README.txt                       — Ce fichier
+
+Sources
+-------
+BRGM WFS      : https://geoservices.brgm.fr/geologie
+InfoTerre     : http://ficheinfoterre.brgm.fr
+Géorisques    : https://www.georisques.gouv.fr
+ADES          : https://ades.eaufrance.fr
+
+© FERRAPD — BSS Explorer v14
+"""
+        zf.writestr("README.txt", readme.encode('utf-8'))
+
+    zip_buffer.seek(0)
+    return zip_buffer.getvalue(), total_docs, total_ouvrages
+
+
 def render_result_tabs(result: dict, site_input: dict):
     """Affiche les résultats dans des onglets enrichis."""
     ouvrages = result.get("ouvrages", [])
@@ -984,7 +1132,13 @@ if page == f"{APP_ICON} Nouvelle collecte":
     col_form, col_result = st.columns([1, 2], gap="large")
 
     with col_form:
-        st.subheader("Paramètres de collecte")
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">'
+            f'<img src="{FERRAPD_ICONE_URL}" width="40" height="40" style="border-radius:8px;" />'
+            f'<span style="font-size:22px;font-weight:700;">Paramètres de collecte</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
         mode_saisie = st.radio(
             "Mode de saisie",
@@ -1131,6 +1285,40 @@ Les champs internes (`_meta`, `EDSM`) sont automatiquement ignorés à l'import.
 
                 with st.expander(f"✅ {cs_label} — {result.get('nb_ouvrages', 0)} ouvrage(s)", expanded=len(results) == 1):
                     render_result_tabs(result, site_input)
+
+            # ── Export ZIP batch (un dossier par site) ────────────────────────────────
+            successful = [r for r in results if r.get('success')]
+            if successful:
+                st.divider()
+                total_docs_est = sum(
+                    sum(len(o.get('documents', [])) for o in r.get('ouvrages', []))
+                    for r in successful
+                )
+                btn_label = f"📦 Exporter tout en ZIP — {len(successful)} site(s), ~{total_docs_est} doc(s)"
+
+                if st.button(btn_label, type="primary", use_container_width=True, key="btn_batch_zip"):
+                    with st.spinner("📦 Construction du ZIP avec documents (cela peut prendre quelques minutes)…"):
+                        zip_bytes, dl_docs, dl_ouv = build_batch_zip(results)
+                        st.session_state["batch_zip_data"] = zip_bytes
+                        st.session_state["batch_zip_info"] = {
+                            "sites": len(successful),
+                            "ouvrages": dl_ouv,
+                            "docs": dl_docs,
+                        }
+                    st.rerun()
+
+                if "batch_zip_data" in st.session_state:
+                    info = st.session_state.get("batch_zip_info", {})
+                    _ts_dl = datetime.now().strftime('%Y-%m-%d_%Hh%M')
+                    st.download_button(
+                        f"⬇️ Télécharger le ZIP ({info.get('sites',0)} sites, "
+                        f"{info.get('ouvrages',0)} ouvrages, {info.get('docs',0)} docs)",
+                        data=st.session_state["batch_zip_data"],
+                        file_name=f"BSS_BATCH_{_ts_dl}.zip",
+                        mime="application/zip",
+                        use_container_width=True,
+                        key="dl_batch_zip",
+                    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
