@@ -19,8 +19,8 @@ Paramètres de sortie JSON :
   PPRI_zone   = Libellé de la zone réglementaire
   PPRI_alea   = Niveau d'aléa inondation (Fort/Moyen/Précaution/Prescriptions)
   PPRI_reglement = Libellé du règlement standardisé
-  PHGF_m      = Profondeur Hors Gel Fondations (m) — NF P 94-261
-  PHGF_cm     = Profondeur Hors Gel Fondations (cm)
+  PMHGF_m      = Préconisation de Mise Hors Gel de la Fondation (m) — NF P 94-261
+  PMHGF_cm     = Préconisation de Mise Hors Gel de la Fondation (cm)
   zone_gel    = Zone climatique de gel (Zone 1 à 4)
   H0_gel_m    = Valeur H0 lue sur la carte (m)
   altitude_site_m = Altitude du site (m NGF) via Open-Meteo
@@ -163,21 +163,21 @@ def build_output_json(result: dict, site_input: dict) -> dict:
         "PPRI_zone": geo.get("ppri_zone", ""),
         "PPRI_alea": geo.get("niveau_alea_inondation", ""),
         "PPRI_reglement": geo.get("ppri_reglement", ""),
-        "PHGF_m":   geo.get("PHGF"),
-        "PHGF_cm":  geo.get("PHGF_cm"),
+        "PMHGF_m":   geo.get("PMHGF"),
+        "PMHGF_cm":  geo.get("PMHGF_cm"),
         "zone_gel": geo.get("zone_gel", ""),
         "H0_gel_m": geo.get("H0_gel"),
         "altitude_site_m": geo.get("altitude_site"),
         "ouvrages":  ouvrages_out,
         "_meta": {
-            "_description": "Dictionnaire des paramètres — BSS Explorer FERRAPD",
-            "CS":        {"description": "Code site BSS (identifiant unique du point de collecte)", "unite": "—", "format": "FRA0XX00XXX"},
+            "_description": "Dictionnaire des paramètres — BSS Explorer by FerrAPD",
+            "CS":        {"description": "Code site (identifiant unique du point de collecte)", "unite": "—", "format": "FRA0XX00XXX ou FRA0XX0XXXX"},
             "LaOPY":     {"description": "Latitude du point ciblé (système WGS84)", "unite": "degrés décimaux", "format": "DD.DDDDDD"},
             "LoOPY":     {"description": "Longitude du point ciblé (système WGS84)", "unite": "degrés décimaux", "format": "DD.DDDDDD"},
             "emprise_m": {"description": "Rayon de recherche autour du point ciblé", "unite": "m"},
-            "mode":      {"description": "Mode de collecte utilisé (WFS BRGM)", "unite": "—"},
+            "mode":      {"description": "Mode de collecte utilisé", "unite": "—", "valeurs": "WFS BRGM"},
             "NOuv":      {"description": "Nombre total d'ouvrages trouvés dans l'emprise", "unite": "u"},
-            "NOuvALog":  {"description": "Nombre d'ouvrages possédant un log géologique numérique", "unite": "u"},
+            "NOuvALog":  {"description": "Nombre d'ouvrages possédant un log géologique numérique", "unite": "u", "source": "InfoTerre BRGM"},
             "IZS":       {"description": "Indice de Zone Sismique réglementaire (Eurocode 8 / arrêté 2010)", "unite": "—", "source": "Géorisques API"},
             "IARGA":     {"description": "Indice d'Aléa Retrait-Gonflement des Argiles", "unite": "—", "valeurs": "Fort / Moyen / Faible / A priori nul", "source": "Géorisques API"},
             "IZINOND":   {"description": "Zone inondable au titre du Plan de Prévention des Risques d'Inondation (PPRI)", "unite": "—", "valeurs": "Oui / Non / N/D", "source": "WMS Géorisques BRGM"},
@@ -185,8 +185,8 @@ def build_output_json(result: dict, site_input: dict) -> dict:
             "PPRI_zone": {"description": "Libellé de la zone réglementaire PPRI", "unite": "—", "source": "WMS Géorisques BRGM"},
             "PPRI_alea": {"description": "Niveau d'aléa inondation dans la zone PPRI", "unite": "—", "valeurs": "Fort / Moyen / Précaution / Prescriptions", "source": "WMS Géorisques BRGM"},
             "PPRI_reglement": {"description": "Libellé du règlement standardisé applicable dans la zone PPRI", "unite": "—", "source": "WMS Géorisques BRGM"},
-            "PHGF_m":   {"description": "Profondeur Hors Gel Fondations (profondeur minimale d'enfouissement des fondations superficielles)", "unite": "m", "norme": "NF P 94-261 / DTU 13.1", "formule": "H = H0 + (A-150)/4000 si A>150m"},
-            "PHGF_cm":  {"description": "Profondeur Hors Gel Fondations", "unite": "cm", "norme": "NF P 94-261 / DTU 13.1"},
+            "PMHGF_m":   {"description": "Préconisation de Mise Hors Gel de la Fondation", "unite": "m", "norme": "NF P 94-261 / DTU 13.1", "formule": "H = H0 + (A-150)/4000 si A>150m"},
+            "PMHGF_cm":  {"description": "Préconisation de Mise Hors Gel de la Fondation", "unite": "cm", "norme": "NF P 94-261 / DTU 13.1"},
             "zone_gel": {"description": "Zone climatique de gel selon la carte NF P 94-261", "unite": "—", "valeurs": "Zone 1 (gel faible) / Zone 2 (gel modéré) / Zone 3 (gel sévère) / Zone 4 (gel très sévère)"},
             "H0_gel_m": {"description": "Valeur H0 de la carte NF P 94-261 (profondeur de base avant correction altitude)", "unite": "m", "valeurs": "0.50 / 0.60 / 0.80 / 0.90"},
             "altitude_site_m": {"description": "Altitude du site au-dessus du niveau de la mer (NGF)", "unite": "m NGF", "source": "Open-Meteo Elevation API"},
@@ -207,8 +207,8 @@ def build_output_json(result: dict, site_input: dict) -> dict:
                 "lon":       {"description": "Longitude de l'ouvrage (WGS84)", "unite": "degrés décimaux"},
                 "url_infoterre": {"description": "Lien vers la fiche InfoTerre de l'ouvrage", "unite": "—", "format": "URL"},
                 "url_ades":  {"description": "Lien vers la fiche ADES de l'ouvrage (données piézométriques)", "unite": "—", "format": "URL"},
-                "PCx":       {"description": "Puissance (épaisseur) de la couche géologique n°x du log", "unite": "m"},
-                "TeCx":      {"description": "Terrain (lithologie) de la couche géologique n°x", "unite": "—"},
+                "PCx":       {"description": "Profondeur (épaisseur) de la couche géologique n°x du log", "unite": "m"},
+                "TeCx":      {"description": "Texture (lithologie) de la couche géologique n°x", "unite": "—"},
                 "StCx":      {"description": "Stratigraphie de la couche géologique n°x", "unite": "—"},
                 "FAOuv_xxx": {"description": "Dossier des documents numérisés de l'ouvrage (nom, type, URL)", "unite": "—"},
             },
@@ -394,11 +394,11 @@ def build_folium_map(ouvrages: list, lat_centre: float, lon_centre: float,
                     zi_txt += f"<br><span style='font-size:10px;color:#999;'>{ppri_z}</span>"
             geo_html += f'<tr><td style="color:#666;font-size:11px;">IZINOND</td><td style="font-size:11px;"><b style="color:{zi_col};">{zi_txt}</b></td></tr>'
 
-        # PHGF dans le popup
-        phgf_v = geo.get("PHGF")
+        # PMHGF dans le popup
+        phgf_v = geo.get("PMHGF")
         if phgf_v is not None:
             phgf_zone = geo.get("zone_gel", "")
-            geo_html += f'<tr><td style="color:#666;font-size:11px;">PHGF</td><td style="font-size:11px;"><b style="color:#60a5fa;">{phgf_v:.2f} m</b> <span style="font-size:10px;color:#999;">{phgf_zone}</span></td></tr>'
+            geo_html += f'<tr><td style="color:#666;font-size:11px;">PMHGF</td><td style="font-size:11px;"><b style="color:#60a5fa;">{phgf_v:.2f} m</b> <span style="font-size:10px;color:#999;">{phgf_zone}</span></td></tr>'
 
         prof_tot = o.get("profondeur_totale")
         prof_inv = o.get("prof_investigation")
@@ -480,11 +480,11 @@ def build_folium_map(ouvrages: list, lat_centre: float, lon_centre: float,
                 zi_extra += f'<br><span style="font-size:10px;color:#666;">PPRI : {ppri}</span>'
             if zone_lib:
                 zi_extra += f'<br><span style="font-size:10px;color:#666;">{zone_lib}</span>'
-        # PHGF pour la légende
+        # PMHGF pour la légende
         phgf_legend = ""
-        phgf_v = georisques.get("PHGF")
+        phgf_v = georisques.get("PMHGF")
         if phgf_v is not None:
-            phgf_legend = f'<div style="font-size:11px;color:#111;">PHGF : <b style="color:#2563eb;">{phgf_v:.2f} m</b> <span style="font-size:10px;color:#666;">({georisques.get("zone_gel","")})</span></div>'
+            phgf_legend = f'<div style="font-size:11px;color:#111;">PMHGF : <b style="color:#2563eb;">{phgf_v:.2f} m</b> <span style="font-size:10px;color:#666;">({georisques.get("zone_gel","")})</span></div>'
 
         geo_legend = (
             f'<hr style="border-color:#ccc;margin:6px 0;">'
@@ -993,8 +993,8 @@ def render_result_tabs(result: dict, site_input: dict):
             unsafe_allow_html=True,
         )
     with m5:
-        # PHGF — Profondeur Hors Gel Fondations
-        phgf_val = geo.get("PHGF")
+        # PMHGF — Préconisation de Mise Hors Gel de la Fondation
+        phgf_val = geo.get("PMHGF")
         phgf_zone = geo.get("zone_gel", "N/D")
         if phgf_val is not None:
             phgf_str = f"{phgf_val:.2f} m"
@@ -1003,7 +1003,7 @@ def render_result_tabs(result: dict, site_input: dict):
             phgf_str = "N/D"
             phgf_detail = ""
         st.markdown(
-            '<p style="font-size:11px;color:rgba(250,250,250,0.6);margin:0 0 4px 0;">PHGF</p>'
+            '<p style="font-size:11px;color:rgba(250,250,250,0.6);margin:0 0 4px 0;">PMHGF</p>'
             f'<p style="font-size:13px;font-weight:700;color:#60a5fa;margin:0;line-height:1.3;">'
             f'{phgf_str}{phgf_detail}</p>',
             unsafe_allow_html=True,
@@ -1483,9 +1483,9 @@ elif page == "ℹ️ À propos":
 | [BRGM WFS](https://geoservices.brgm.fr/geologie) | Ouvrages BSS (forages, piézomètres, puits) |
 | [InfoTerre BRGM](http://ficheinfoterre.brgm.fr) | Fiches détaillées (AltOuv, log géologique, PIOuv, PeS, documents numérisés) |
 | [Géorisques](https://www.georisques.gouv.fr) | IZS (zone sismique), IARGA (aléa RGA), IZINOND (zone inondable PPRI) |
-| [Open-Meteo Elevation](https://open-meteo.com) | Altitude du site (m NGF) pour le calcul PHGF |
+| [Open-Meteo Elevation](https://open-meteo.com) | Altitude du site (m NGF) pour le calcul PMHGF |
 | [geo.api.gouv.fr](https://geo.api.gouv.fr) | Département du site (pour zone de gel NF P 94-261) |
-| NF P 94-261 / DTU 13.1 | Formule PHGF : H = H0 + (A−150)/4000 |
+| NF P 94-261 / DTU 13.1 | Formule PMHGF : H = H0 + (A−150)/4000 |
 | [ADES](https://ades.eaufrance.fr) | Données piézométriques nationales |
 
 ### Nomenclature des paramètres
@@ -1512,8 +1512,8 @@ elif page == "ℹ️ À propos":
 | `PPRI_zone` | Libellé de la zone réglementaire | — |
 | `PPRI_alea` | Niveau d'aléa inondation | Fort / Moyen / Précaution / Prescriptions |
 | `PPRI_reglement` | Libellé du règlement standardisé | — |
-| `PHGF_m` | Profondeur Hors Gel Fondations | m |
-| `PHGF_cm` | Profondeur Hors Gel Fondations | cm |
+| `PMHGF_m` | Préconisation de Mise Hors Gel de la Fondation | m |
+| `PMHGF_cm` | Préconisation de Mise Hors Gel de la Fondation | cm |
 | `zone_gel` | Zone climatique de gel | Zone 1 à 4 |
 | `H0_gel_m` | Valeur H0 carte NF P 94-261 | m |
 | `altitude_site_m` | Altitude du site | m NGF |

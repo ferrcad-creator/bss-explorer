@@ -566,7 +566,7 @@ def scrape_georisques(lat: float, lon: float, log) -> dict:
         log(f"    Géorisques inondation erreur : {e}")
         result["zone_inondable"] = "N/D"
 
-    # ── Profondeur Hors Gel Fondations (PHGF) ───────────────────────────────
+    # ── Profondeur Hors Gel Fondations (PMHGF) ───────────────────────────────
     # Source : NF P 94-261 / DTU 13.1
     # Formule : H = H0 + (A - 150) / 4000  si A > 150 m
     # H0 dépend de la zone climatique (département)
@@ -606,7 +606,7 @@ def scrape_georisques(lat: float, lon: float, log) -> dict:
         return None
 
     try:
-        log("  PHGF : calcul profondeur hors gel…")
+        log("  PMHGF : calcul profondeur hors gel…")
 
         # ── 1. Département : source principale geo.api.gouv.fr + fallback BAN ──
         dept_code = ""
@@ -622,7 +622,7 @@ def scrape_georisques(lat: float, lon: float, log) -> dict:
 
         # Source 2 (fallback) : BAN reverse geocoding
         if not dept_code:
-            log("    PHGF dépt: fallback BAN…")
+            log("    PMHGF dépt: fallback BAN…")
             resp = _retry_get(
                 "https://api-adresse.data.gouv.fr/reverse/",
                 params={"lon": lon, "lat": lat, "limit": 1},
@@ -636,12 +636,12 @@ def scrape_georisques(lat: float, lon: float, log) -> dict:
 
         # Source 3 (fallback ultime) : déduire du code postal via latitude
         if not dept_code:
-            log("    PHGF dépt: estimation par latitude/longitude…")
+            log("    PMHGF dépt: estimation par latitude/longitude…")
             # Estimation grossière pour la France métropolitaine
             # On applique zone 2 par défaut (0.60 m)
             dept_code = ""
 
-        log(f"    PHGF dépt: {dept_code or 'défaut zone 2'}")
+        log(f"    PMHGF dépt: {dept_code or 'défaut zone 2'}")
 
         # ── 2. Altitude : source principale Open-Meteo + fallback Open-Elevation ──
         altitude = None
@@ -659,7 +659,7 @@ def scrape_georisques(lat: float, lon: float, log) -> dict:
 
         # Source 2 (fallback) : Open-Elevation API
         if altitude is None:
-            log("    PHGF altitude: fallback Open-Elevation…")
+            log("    PMHGF altitude: fallback Open-Elevation…")
             resp = _retry_get(
                 "https://api.open-elevation.com/api/v1/lookup",
                 params={"locations": f"{lat},{lon}"},
@@ -671,23 +671,23 @@ def scrape_georisques(lat: float, lon: float, log) -> dict:
 
         # Source 3 (fallback) : Open-Meteo archive (température sol comme proxy)
         if altitude is None:
-            log("    PHGF altitude: fallback estimation par coordonnées…")
+            log("    PMHGF altitude: fallback estimation par coordonnées…")
             # Estimation grossière pour la France métropolitaine :
             # Si lat > 46 et lon > 5 : probable zone montagneuse, estimer 300m
             # Sinon : estimer 100m (plaine)
             if lat > 46 and lon > 5:
                 altitude = 300.0
-                log("    PHGF altitude: estimation 300m (zone montagneuse probable)")
+                log("    PMHGF altitude: estimation 300m (zone montagneuse probable)")
             elif lat > 44 and (lon > 5.5 or lon < -0.5):
                 altitude = 200.0
-                log("    PHGF altitude: estimation 200m (piémont probable)")
+                log("    PMHGF altitude: estimation 200m (piémont probable)")
             else:
                 altitude = 50.0
-                log("    PHGF altitude: estimation 50m (plaine probable)")
+                log("    PMHGF altitude: estimation 50m (plaine probable)")
 
-        log(f"    PHGF altitude: {altitude} m")
+        log(f"    PMHGF altitude: {altitude} m")
 
-        # ── 3. Calcul PHGF ────────────────────────────────────────────────
+        # ── 3. Calcul PMHGF ────────────────────────────────────────────────
         h0 = DEPT_H0.get(dept_code, 0.60)
 
         if altitude is not None and altitude > 150:
@@ -706,26 +706,26 @@ def scrape_georisques(lat: float, lon: float, log) -> dict:
         else:
             zone_label = "Zone 4 (gel très sévère)"
 
-        result["PHGF"] = phgf
-        result["PHGF_cm"] = int(phgf * 100)
+        result["PMHGF"] = phgf
+        result["PMHGF_cm"] = int(phgf * 100)
         result["zone_gel"] = zone_label
         result["H0_gel"] = h0
         result["altitude_site"] = altitude
         result["dept_code"] = dept_code
 
-        log(f"  PHGF : {phgf:.2f} m ({int(phgf*100)} cm) | {zone_label} | H0={h0} m | Alt={altitude} m | Dépt={dept_code}")
+        log(f"  PMHGF : {phgf:.2f} m ({int(phgf*100)} cm) | {zone_label} | H0={h0} m | Alt={altitude} m | Dépt={dept_code}")
     except Exception as e:
-        log(f"    PHGF erreur critique : {e}")
+        log(f"    PMHGF erreur critique : {e}")
         # Fallback absolu : appliquer zone 2 (0.60 m) pour ne jamais retourner N/D
-        result["PHGF"] = 0.60
-        result["PHGF_cm"] = 60
+        result["PMHGF"] = 0.60
+        result["PMHGF_cm"] = 60
         result["zone_gel"] = "Zone 2 (gel modéré) [estimation]"
         result["H0_gel"] = 0.60
         result["altitude_site"] = None
         result["dept_code"] = ""
-        log(f"  PHGF : fallback 0.60 m (zone 2 par défaut)")
+        log(f"  PMHGF : fallback 0.60 m (zone 2 par défaut)")
 
-    log(f"  Géorisques : sismique={result['zone_sismique']} | RGA={result['alea_rga']} | inondation={result.get('zone_inondable', 'N/D')} | PHGF={result.get('PHGF', 'N/D')} m")
+    log(f"  Géorisques : sismique={result['zone_sismique']} | RGA={result['alea_rga']} | inondation={result.get('zone_inondable', 'N/D')} | PMHGF={result.get('PMHGF', 'N/D')} m")
     return result
 
 
