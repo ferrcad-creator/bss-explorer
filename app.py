@@ -7,7 +7,7 @@ Paramètres d'entrée JSON :
   CS      = Code site BSS (ex: FRA034001MPL)
   LaOPY   = Latitude WGS84 (°)
   LoOPY   = Longitude WGS84 (°)
-  emprise_m = Emprise de recherche (m) — optionnel, défaut 500
+  emprise_m = Emprise de recherche (m) — optionnel, défaut 500 (formulaire) / 2000 (batch)
 
 Paramètres de sortie JSON :
   NOuv        = Nombre d'ouvrages (u)
@@ -34,6 +34,8 @@ import json
 import sys
 import os
 import re
+import io
+import zipfile
 from datetime import datetime
 from typing import Optional
 
@@ -235,7 +237,7 @@ with st.sidebar:
     else:
         st.warning("Base de données non connectée")
     st.markdown("---")
-    st.caption("BSS Explorer v12 — FERRAPD\nDonnées : BRGM / Géorisques / ADES")
+    st.caption("BSS Explorer v14 — FERRAPD\nDonnées : BRGM / Géorisques / ADES")
 
 
 # ─── Fonctions d'affichage ────────────────────────────────────────────────────
@@ -538,6 +540,142 @@ document.addEventListener('keydown', function(e) {
                     )
 
 
+def build_zip_with_documents(result: dict, site_input: dict, ouvrages: list,
+                              lat_c, lon_c, emprise, cs, geo) -> bytes:
+    """
+    Construit un ZIP en mémoire contenant :
+    - BSS_{CS}_{date}.json (export complet)
+    - BSS_{CS}_{date}.csv (tableau ouvrages)
+    - carte_BSS_{CS}_{date}.html (carte Folium)
+    - documents/{code_bss_safe}/{nom_fichier} (documents InfoTerre par ouvrage)
+    - README.txt
+    """
+    import requests as req_lib
+
+    _ts = datetime.now().strftime('%Y-%m-%d_%Hh%M')
+    _cs_clean = (cs or 'site').replace('/', '-').replace(' ', '_')
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+
+        # 1. JSON
+        output_json = build_output_json(result, site_input)
+        json_str = json.dumps(output_json, ensure_ascii=False, indent=2, default=str)
+        zf.writestr(f"BSS_{_cs_clean}_{_ts}.json", json_str.encode('utf-8'))
+
+        # 2. CSV
+        csv_lines = [
+            "code_bss;NInv;COM;LaOPY;LoOPY;PIOuv(m);PeS(m);Date_PeS;AltOuv(mNGF);"
+            "Aquifere;BDCE;DOuvPC(m);NCALOuv;NDAOuv;url_infoterre;url_ades"
+        ]
+        for o in ouvrages:
+            csv_lines.append(";".join([
+                f'"{o.get("code_bss","")}"',
+                f'"{o.get("nature","")}"',
+                f'"{o.get("nom_commune", o.get("commune",""))}"',
+                str(o.get("lat", "")),
+                str(o.get("lon", "")),
+                str(o.get("prof_investigation", "")),
+                str(o.get("niveau_eau", "")),
+                f'"{o.get("niveau_eau_date","")}"',
+                str(o.get("altitude_ngf", "")),
+                f'"{o.get("aquifere","")}"',
+                f'"{o.get("bassin_dce","")}"',
+                f'{o.get("distance_centre_m", 0):.0f}',
+                str(len(o.get("log_geologique", []))),
+                str(len(o.get("documents", []))),
+                f'"{o.get("url_infoterre","")}"',
+                f'"{o.get("url_ades","")}"',
+            ]))
+        zf.writestr(f"BSS_{_cs_clean}_{_ts}.csv",
+                    ("\ufeff" + "\n".join(csv_lines)).encode('utf-8'))
+
+        # 3. Carte HTML
+        if lat_c and lon_c:
+            try:
+                fmap = build_folium_map(ouvrages, lat_c, lon_c, emprise, cs, geo or None)
+                zf.writestr(f"carte_BSS_{_cs_clean}_{_ts}.html",
+                            fmap._repr_html_().encode('utf-8'))
+            except Exception:
+                pass
+
+        # 4. Documents InfoTerre par ouvrage
+        doc_count = 0
+        for o in ouvrages:
+            docs = o.get("documents", [])
+            if not docs:
+                continue
+            code_bss = o.get("code_bss", "inconnu")
+            safe_code = code_bss.replace("/", "_").replace(" ", "_")
+
+            for idx, d in enumerate(docs, start=1):
+                url = d.get("url", "")
+                nom = d.get("nom", f"doc_{idx}")
+                if not url or url == "#":
+                    continue
+
+                # Déterminer le nom de fichier
+                scan_name = d.get("scan_name", "")
+                if scan_name:
+                    filename = scan_name
+                else:
+                    # Extraire depuis l'URL
+                    filename = nom.replace(" ", "_").replace("/", "_")
+                    if not any(filename.lower().endswith(ext) for ext in ('.pdf', '.tif', '.tiff', '.jpg', '.png')):
+                        filename += ".pdf"
+
+                # Télécharger le document
+                try:
+                    resp = req_lib.get(url, timeout=15, stream=True)
+                    if resp.status_code == 200:
+                        content = resp.content
+                        archive_path = f"documents/{safe_code}/{filename}"
+                        zf.writestr(archive_path, content)
+                        doc_count += 1
+                except Exception:
+                    # Si le téléchargement échoue, on continue sans bloquer
+                    pass
+
+        # 5. README
+        readme = f"""BSS Explorer — Export complet avec documents
+======================================================
+Site          : {cs}
+Coordonnées   : {lat_c}, {lon_c}
+Emprise       : {emprise} m
+Exporté le    : {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+Résultats
+---------
+Ouvrages trouvés  : {len(ouvrages)}
+Zone sismique     : {(geo or {}).get('zone_sismique', 'N/A')}
+Aléa RGA          : {(geo or {}).get('alea_rga', 'N/A')}
+Documents téléchargés : {doc_count}
+
+Contenu du ZIP
+--------------
+BSS_{_cs_clean}_{_ts}.json   — Données complètes (format BSS Explorer)
+BSS_{_cs_clean}_{_ts}.csv    — Tableau CSV (séparateur ; — Excel)
+carte_BSS_{_cs_clean}_{_ts}.html — Carte Folium interactive
+documents/                    — Documents InfoTerre classés par ouvrage
+  {{code_bss}}/
+    {{nom_document}}.tif/.pdf
+README.txt                    — Ce fichier
+
+Sources
+-------
+BRGM WFS      : https://geoservices.brgm.fr/geologie
+InfoTerre     : http://ficheinfoterre.brgm.fr
+Géorisques    : https://www.georisques.gouv.fr
+ADES          : https://ades.eaufrance.fr
+
+© FERRAPD — BSS Explorer v14
+"""
+        zf.writestr("README.txt", readme.encode('utf-8'))
+
+    zip_buffer.seek(0)
+    return zip_buffer.getvalue()
+
+
 def render_result_tabs(result: dict, site_input: dict):
     """Affiche les résultats dans des onglets enrichis."""
     ouvrages = result.get("ouvrages", [])
@@ -666,7 +804,7 @@ def render_result_tabs(result: dict, site_input: dict):
 
     # ── Exports ────────────────────────────────────────────────────────────────
     st.divider()
-    col_dl1, col_dl2, col_dl3 = st.columns(3)
+    col_dl1, col_dl2, col_dl3, col_dl4 = st.columns(4)
     _ts = datetime.now().strftime('%Y-%m-%d_%Hh%M')
     _cs_clean = (cs or 'site').replace('/', '-').replace(' ', '_')
 
@@ -739,6 +877,25 @@ def render_result_tabs(result: dict, site_input: dict):
                 )
             except Exception:
                 pass
+
+    with col_dl4:
+        # ZIP complet avec documents InfoTerre classés par ouvrage
+        nb_docs_total = sum(len(o.get("documents", [])) for o in ouvrages)
+        zip_label = f"📦 ZIP + {nb_docs_total} doc(s)" if nb_docs_total > 0 else "📦 ZIP complet"
+        if st.button(zip_label, use_container_width=True,
+                     help="Télécharge un ZIP contenant le JSON, le CSV, la carte HTML "
+                          "et tous les documents InfoTerre classés par ouvrage."):
+            with st.spinner(f"Préparation du ZIP ({nb_docs_total} document(s) InfoTerre)..."):
+                zip_data = build_zip_with_documents(
+                    result, site_input, ouvrages, lat_c, lon_c, emprise, cs, geo
+                )
+            st.download_button(
+                "⬇️ Télécharger le ZIP",
+                data=zip_data,
+                file_name=f"BSS_{_cs_clean}_{_ts}.zip",
+                mime="application/zip",
+                use_container_width=True,
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -857,7 +1014,7 @@ Les champs internes (`_meta`, `EDSM`) sont automatiquement ignorés à l'import.
                     result = collect_bss(
                         lat=float(site.get("LaOPY", site.get("lat", 0))),
                         lon=float(site.get("LoOPY", site.get("lon", 0))),
-                        emprise_m=int(site.get("emprise_m", 500)),
+                        emprise_m=int(site.get("emprise_m", 2000)),
                         code_site=site.get("CS", site.get("code_site", "")),
                     )
                     result["input"] = site
@@ -869,7 +1026,7 @@ Les champs internes (`_meta`, `EDSM`) sont automatiquement ignorés à l'import.
                             code_site=result.get("code_site", cs_label),
                             lat=float(site.get("LaOPY", site.get("lat", 0))),
                             lon=float(site.get("LoOPY", site.get("lon", 0))),
-                            emprise_m=int(site.get("emprise_m", 500)),
+                            emprise_m=int(site.get("emprise_m", 2000)),
                             nb_ouvrages=result.get("nb_ouvrages", 0),
                             mode=result.get("mode", "WFS BRGM"),
                             ouvrages=result.get("ouvrages", []),
@@ -987,7 +1144,7 @@ elif page == "ℹ️ À propos":
 | `CS` | Code site BSS | `FRA0XX00XXX` ou `FRA0XX0XXXX` |
 | `LaOPY` | Latitude WGS84 | Degrés décimaux (°) |
 | `LoOPY` | Longitude WGS84 | Degrés décimaux (°) |
-| `emprise_m` | Emprise de recherche | Mètres (défaut : 500) |
+| `emprise_m` | Emprise de recherche | Mètres (défaut : 500 formulaire / 2000 batch) |
 
 **Sortie JSON (niveau site) :**
 
@@ -1017,5 +1174,5 @@ elif page == "ℹ️ À propos":
 | `FAOuv_{{code_bss}}` | Dossier des documents numérisés | — |
 
 ### Version
-BSS Explorer v12 — Build {datetime.now().strftime('%Y-%m-%d')}
+BSS Explorer v14 — Build {datetime.now().strftime('%Y-%m-%d')}
 """)
