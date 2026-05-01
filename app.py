@@ -152,12 +152,13 @@ def build_output_json(result: dict, site_input: dict) -> dict:
 
 
 # ─── Configuration de la page ─────────────────────────────────────────────────
-APP_ICON = "🔩"   # Icône emoji de secours (utilisée si le logo PNG n'est pas chargé)
-FERRAPD_LOGO_URL = "https://raw.githubusercontent.com/ferrcad-creator/bss-explorer/main/assets/ferrapd_logo.png"
+APP_ICON = "🔩"   # Icône emoji de secours
+FERRAPD_LOGO_URL  = "https://raw.githubusercontent.com/ferrcad-creator/bss-explorer/main/assets/ferrapd_logo.png"
+FERRAPD_ICONE_URL = "https://raw.githubusercontent.com/ferrcad-creator/bss-explorer/main/assets/ferrapd_icone.png"
 
 st.set_page_config(
     page_title="BSS Explorer — FERRAPD",
-    page_icon=FERRAPD_LOGO_URL,
+    page_icon=FERRAPD_ICONE_URL,
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -217,7 +218,7 @@ st.markdown(f"""
 
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.image(FERRAPD_LOGO_URL, width=100)
+    st.image(FERRAPD_ICONE_URL, width=80)
     st.markdown("### Navigation")
     page = st.radio(
         "Page",
