@@ -1,5 +1,5 @@
 """
-BSS Explorer — Application Streamlit v11
+BSS Explorer — Application Streamlit v12
 =========================================
 Collecte hydrogéologique automatisée depuis la Banque du Sous-Sol BRGM.
 
@@ -152,11 +152,12 @@ def build_output_json(result: dict, site_input: dict) -> dict:
 
 
 # ─── Configuration de la page ─────────────────────────────────────────────────
-APP_ICON = "🔩"   # Icône principale de l'application
+APP_ICON = "🔩"   # Icône emoji de secours (utilisée si le logo PNG n'est pas chargé)
+FERRAPD_LOGO_URL = "https://raw.githubusercontent.com/ferrcad-creator/bss-explorer/main/assets/ferrapd_logo.png"
 
 st.set_page_config(
     page_title="BSS Explorer — FERRAPD",
-    page_icon=APP_ICON,
+    page_icon=FERRAPD_LOGO_URL,
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -205,16 +206,19 @@ db_ok = setup_database()
 
 # ─── Header ───────────────────────────────────────────────────────────────────
 st.markdown(f"""
-<div class="main-header">
-    <h1>{APP_ICON} BSS Explorer</h1>
-    <p>Banque du Sous-Sol BRGM — Collecte hydrogéologique automatisée | FERRAPD</p>
+<div class="main-header" style="display:flex;align-items:center;gap:16px;">
+    <img src="{FERRAPD_LOGO_URL}" width="56" height="56" style="border-radius:8px;flex-shrink:0;" alt="FERRAPD" />
+    <div>
+        <h1 style="margin:0;">BSS Explorer</h1>
+        <p style="margin:0.3rem 0 0 0;">Banque du Sous-Sol BRGM — Collecte hydrogéologique automatisée | FERRAPD</p>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/BRGM_logo.svg/200px-BRGM_logo.svg.png", width=120)
-    st.markdown(f"### {APP_ICON} Navigation")
+    st.image(FERRAPD_LOGO_URL, width=100)
+    st.markdown("### Navigation")
     page = st.radio(
         "Page",
         [f"{APP_ICON} Nouvelle collecte", "📋 Historique", "ℹ️ À propos"],
@@ -227,7 +231,7 @@ with st.sidebar:
     else:
         st.warning("Base de données non connectée")
     st.markdown("---")
-    st.caption("BSS Explorer v11 — FERRAPD\nDonnées : BRGM / Géorisques / ADES")
+    st.caption("BSS Explorer v12 — FERRAPD\nDonnées : BRGM / Géorisques / ADES")
 
 
 # ─── Fonctions d'affichage ────────────────────────────────────────────────────
@@ -551,16 +555,18 @@ def render_result_tabs(result: dict, site_input: dict):
         izs = geo.get("zone_sismique", "N/A") or "N/A"
         st.metric("IZS", izs)
     with m3:
-        # IARGA — valeur complète, taille adaptée
+        # IARGA — valeur complète en texte réduit pour lisibilité totale
         iarga = geo.get("alea_rga", "N/A") or "N/A"
-        # Tronquer à 20 car. pour l'affichage metric, afficher complet en caption
-        iarga_display = iarga if len(iarga) <= 20 else iarga[:18] + "…"
-        st.metric("IARGA", iarga_display)
-        if len(iarga) > 20:
-            st.caption(f"Valeur complète : {iarga}")
+        st.markdown(
+            f'<div style="padding:4px 0;">'  
+            f'<div style="font-size:11px;color:#888;font-weight:500;margin-bottom:2px;">IARGA</div>'
+            f'<div style="font-size:12px;font-weight:700;color:#e0e0e0;line-height:1.3;word-break:break-word;">{iarga}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
     with m4:
         if closest:
-            st.metric("DOuvPC (ouvrage le + proche)", f"{closest.get('distance_centre_m', 0):.0f} m")
+            st.metric("DOuvPC", f"{closest.get('distance_centre_m', 0):.0f} m")
     with m5:
         st.metric("NOuvALog", nb_logs)
 
@@ -696,15 +702,26 @@ def render_result_tabs(result: dict, site_input: dict):
         )
 
     with col_dl2:
-        # JSON sortie avec nomenclature v11
+        # JSON sortie avec nomenclature v12
         output_json = build_output_json(result, site_input)
+        json_bytes = json.dumps(output_json, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+        json_filename = f"BSS_{_cs_clean}_{_ts}.json"
         st.download_button(
-            "📥 Exporter JSON (v11)",
-            data=json.dumps(output_json, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
-            file_name=f"BSS_{_cs_clean}_{_ts}.json",
+            "📥 Exporter JSON",
+            data=json_bytes,
+            file_name=json_filename,
             mime="application/json",
             use_container_width=True,
-            help="Enregistrez ce fichier dans votre dossier OneDrive ou tout autre emplacement de votre choix",
+            help=(
+                f"Cliquez pour télécharger '{json_filename}'.\n"
+                "Dans la fenêtre de téléchargement Windows, naviguez vers votre dossier OneDrive "
+                "(ex : C:\\Users\\VotreNom\\OneDrive\\BSS) pour enregistrer directement dans l'arborescence."
+            ),
+        )
+        # Indication visuelle pour OneDrive
+        st.caption(
+            f"💾 Fichier : `{json_filename}` — Enregistrez dans votre dossier OneDrive "
+            "via la fenêtre de téléchargement Windows."
         )
 
     with col_dl3:
@@ -985,5 +1002,5 @@ elif page == "ℹ️ À propos":
 | `FAOuv_{{code_bss}}` | Dossier des documents numérisés | — |
 
 ### Version
-BSS Explorer v11 — Build {datetime.now().strftime('%Y-%m-%d')}
+BSS Explorer v12 — Build {datetime.now().strftime('%Y-%m-%d')}
 """)
