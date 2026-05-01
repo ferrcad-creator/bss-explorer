@@ -448,6 +448,17 @@ def build_folium_map(ouvrages: list, lat_centre: float, lon_centre: float,
   {geo_legend}
 </div>"""
     m.get_root().html.add_child(folium.Element(legend_html))
+
+    # Règle dynamique de mesure de distance
+    from folium.plugins import MeasureControl
+    MeasureControl(
+        position='topright',
+        primary_length_unit='meters',
+        secondary_length_unit='kilometers',
+        primary_area_unit='sqmeters',
+        secondary_area_unit='hectares',
+    ).add_to(m)
+
     folium.LayerControl().add_to(m)
     return m
 
