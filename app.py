@@ -800,18 +800,31 @@ if page == f"{APP_ICON} Nouvelle collecte":
   {"CS":"FRA034001MPL","LaOPY":43.610769,"LoOPY":3.876716},
   {"CS":"FRA030001MPL","LaOPY":43.836699,"LoOPY":4.360054,"emprise_m":800}
 ]
+
+// Format batch (généré par le script de traitement)
+{"batch":true,"sites":[{"CS":"...","LaOPY":...,"LoOPY":...}, ...]}
 ```
 Les clés `lat`/`lon`/`code_site` sont également acceptées pour la rétrocompatibilité.
+Les champs internes (`_meta`, `EDSM`) sont automatiquement ignorés à l'import.
 """)
             if uploaded:
                 try:
                     raw = json.loads(uploaded.read().decode("utf-8"))
-                    if isinstance(raw, list):
+                    # Support format batch {"batch": true, "sites": [...]}
+                    if isinstance(raw, dict) and raw.get("batch") and "sites" in raw:
+                        raw_list = raw["sites"]
+                    elif isinstance(raw, list):
                         raw_list = raw
                     elif isinstance(raw, dict):
                         raw_list = [raw]
                     else:
                         raw_list = []
+
+                    # Filtrer les champs internes (_meta, EDSM, batch, etc.)
+                    for item in raw_list:
+                        for key in list(item.keys()):
+                            if key.startswith('_') or key in ('EDSM', 'batch', 'date_generation', 'nombre_sites'):
+                                del item[key]
 
                     # Normaliser les clés (CS→code_site, LaOPY→lat, LoOPY→lon)
                     for item in raw_list:
