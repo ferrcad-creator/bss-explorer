@@ -264,14 +264,17 @@ if page == "🔍 Nouvelle collecte":
                             use_container_width=True,
                         )
                     with col_dl2:
-                        # Export JSON
+                        # Export JSON — nom incluant code site + date + heure
                         json_content = json.dumps(result, ensure_ascii=False, indent=2, default=str)
+                        _ts = datetime.now().strftime('%Y-%m-%d_%Hh%M')
+                        _site_clean = (site_label or 'site').replace('/', '-').replace(' ', '_')
                         st.download_button(
-                            "📥 JSON complet",
+                            "📥 Exporter JSON",
                             data=json_content.encode("utf-8"),
-                            file_name=f"bss_{site_label}_{datetime.now().strftime('%Y%m%d')}.json",
+                            file_name=f"BSS_{_site_clean}_{_ts}.json",
                             mime="application/json",
                             use_container_width=True,
+                            help="Enregistrez ce fichier dans votre dossier OneDrive ou tout autre emplacement de votre choix",
                         )
                     with col_dl3:
                         # Export carte HTML
@@ -356,11 +359,24 @@ DATABASE_URL = "postgresql://user:password@host:5432/dbname?sslmode=require"
                                 str(o.get("niveau_eau", "")), str(o.get("niveau_eau_date", "")),
                                 str(o.get("altitude_ngf", "")), f"{o.get('distance_centre_m', 0):.0f}",
                             ]))
-                        st.download_button("📥 CSV", data=("\ufeff" + "\n".join(csv_lines)).encode("utf-8"),
-                                           file_name=f"bss_{loaded['code_site']}.csv", mime="text/csv", use_container_width=True)
+                        _ts2 = datetime.now().strftime('%Y-%m-%d_%Hh%M')
+                        _site_clean2 = (loaded.get('code_site', 'site') or 'site').replace('/', '-').replace(' ', '_')
+                        st.download_button(
+                            "📥 CSV",
+                            data=("\ufeff" + "\n".join(csv_lines)).encode("utf-8"),
+                            file_name=f"BSS_{_site_clean2}_{_ts2}.csv",
+                            mime="text/csv",
+                            use_container_width=True,
+                        )
                     with col_dl2:
-                        st.download_button("📥 JSON", data=json.dumps(loaded, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
-                                           file_name=f"bss_{loaded['code_site']}.json", mime="application/json", use_container_width=True)
+                        st.download_button(
+                            "📥 Exporter JSON",
+                            data=json.dumps(loaded, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+                            file_name=f"BSS_{_site_clean2}_{_ts2}.json",
+                            mime="application/json",
+                            use_container_width=True,
+                            help="Enregistrez ce fichier dans votre dossier OneDrive ou tout autre emplacement de votre choix",
+                        )
                     with col_dl3:
                         if loaded.get("map_html"):
                             st.download_button("🗺️ Carte HTML", data=loaded["map_html"].encode("utf-8"),
