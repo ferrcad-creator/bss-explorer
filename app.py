@@ -360,12 +360,17 @@ def build_folium_map(ouvrages: list, lat_centre: float, lon_centre: float,
   </div>
 </div>"""
 
+        # Couleur verte si log géologique présent, bleue sinon
+        has_log = len(log) > 0
+        marker_color = "#15803d" if has_log else "#1e40af"
+        marker_fill  = "#22c55e" if has_log else "#3b82f6"
+
         folium.CircleMarker(
             location=[o.get("lat", 0), o.get("lon", 0)],
             radius=10,
-            color="#1e40af", weight=2,
-            fill=True, fill_color="#3b82f6", fill_opacity=0.85,
-            tooltip=f"<b>{o.get('code_bss','')}</b><br>{o.get('nature','')} — {o.get('nom_commune','')}<br><small>Cliquer pour la fiche</small>",
+            color=marker_color, weight=2,
+            fill=True, fill_color=marker_fill, fill_opacity=0.85,
+            tooltip=f"<b>{o.get('code_bss','')}</b><br>{o.get('nature','')} — {o.get('nom_commune','')}<br>{'\U0001f4cb Log géologique' if has_log else ''}<br><small>Cliquer pour la fiche</small>",
             popup=folium.Popup(popup_html, max_width=480),
         ).add_to(m)
 
@@ -400,7 +405,10 @@ def build_folium_map(ouvrages: list, lat_centre: float, lon_centre: float,
   </div>
   <div style="font-size:11px;color:#111;">⭐ Point de référence</div>
   <div style="font-size:11px;color:#111;display:flex;align-items:center;gap:6px;">
-    <span style="color:#3b82f6;font-size:16px;">●</span> Ouvrage BSS
+    <span style="color:#22c55e;font-size:16px;">●</span> Ouvrage avec log géologique
+  </div>
+  <div style="font-size:11px;color:#111;display:flex;align-items:center;gap:6px;">
+    <span style="color:#3b82f6;font-size:16px;">●</span> Ouvrage sans log
   </div>
   {geo_legend}
 </div>"""
