@@ -60,6 +60,7 @@ INFOTERRE_BASE = "http://ficheinfoterre.brgm.fr/InfoterreFiche/ficheBss.action"
 ADES_BASE = "https://ades.eaufrance.fr/Fiche/PtEau?Code="
 GEORISQUES_SISMIQUE = "https://www.georisques.gouv.fr/api/v1/zonage_sismique"
 GEORISQUES_RGA = "https://www.georisques.gouv.fr/api/v1/rga"
+GEORISQUES_WMS_INONDATION = "https://mapsref.brgm.fr/wxs/georisques/risques"
 USER_AGENT = "Mozilla/5.0 (compatible; BSS-Collector/1.0; production)"
 REQUEST_TIMEOUT = 30
 INFOTERRE_TIMEOUT = 20
@@ -490,7 +491,82 @@ def scrape_georisques(lat: float, lon: float, log) -> dict:
     except Exception as e:
         log(f"    Géorisques RGA erreur : {e}")
 
-    log(f"  Géorisques : sismique={result['zone_sismique']} | RGA={result['alea_rga']}")
+    # Zone inondable (PPRI) via WMS GetFeatureInfo
+    try:
+        log("  Géorisques : zone inondable (PPRI)\u2026")
+        delta = 0.0005  # ~50m de résolution
+        wms_params = {
+            "SERVICE": "WMS",
+            "VERSION": "1.1.1",
+            "REQUEST": "GetFeatureInfo",
+            "LAYERS": "PPRN_ZONE_INOND",
+            "QUERY_LAYERS": "PPRN_ZONE_INOND",
+            "INFO_FORMAT": "text/plain",
+            "SRS": "EPSG:4326",
+            "BBOX": f"{lon - delta},{lat - delta},{lon + delta},{lat + delta}",
+            "WIDTH": "256",
+            "HEIGHT": "256",
+            "X": "128",
+            "Y": "128",
+            "FEATURE_COUNT": "10",
+        }
+        resp = requests.get(
+            GEORISQUES_WMS_INONDATION,
+            params=wms_params,
+            timeout=GEORISQUES_TIMEOUT,
+            headers={"User-Agent": USER_AGENT},
+        )
+        resp.raise_for_status()
+        text = resp.text
+
+        if "Search returned no results" in text or "Feature" not in text:
+            result["zone_inondable"] = "Non"
+            result["ppri_nom"] = ""
+            result["ppri_zone"] = ""
+            result["ppri_reglement"] = ""
+            result["ppri_code_zone"] = ""
+            result["ppri_etat"] = ""
+            result["ppri_date_approbation"] = ""
+            result["ppri_url_reglement"] = ""
+        else:
+            # Parser le texte plain
+            result["zone_inondable"] = "Oui"
+            fields = {}
+            for line in text.splitlines():
+                line = line.strip()
+                if "=" in line and not line.startswith("Feature") and not line.startswith("Layer"):
+                    key, _, val = line.partition("=")
+                    fields[key.strip()] = val.strip().strip("'")
+
+            result["ppri_nom"] = fields.get("nom_ppr", "")
+            result["ppri_zone"] = fields.get("libelle_zone", "")
+            result["ppri_reglement"] = fields.get("libelle_reglement_standardise", "")
+            result["ppri_code_zone"] = fields.get("code_zone_reglement", "")
+            result["ppri_etat"] = fields.get("etat", "")
+            result["ppri_date_approbation"] = fields.get("date_approbation", "")
+            result["ppri_url_reglement"] = fields.get("url_reglement_zone", "")
+
+            # Déterminer le niveau d'aléa à partir du code zone et du libellé
+            code_z = result["ppri_code_zone"].upper()
+            lib_z = result["ppri_zone"].lower()
+            lib_r = result["ppri_reglement"].lower()
+            if "interdiction" in lib_r or any(x in code_z for x in ["R", "TF", "F1"]):
+                result["niveau_alea_inondation"] = "Fort"
+            elif any(x in lib_z for x in ["précaution", "precaution"]) or "hors zone" in lib_r:
+                result["niveau_alea_inondation"] = "Précaution"
+            elif any(x in code_z for x in ["B", "M", "Z2"]):
+                result["niveau_alea_inondation"] = "Moyen"
+            else:
+                result["niveau_alea_inondation"] = "Prescriptions"
+
+        log(f"  Géorisques inondation : {result.get('zone_inondable', 'N/D')}")
+        if result.get("zone_inondable") == "Oui":
+            log(f"    PPRI: {result['ppri_nom']} | Zone: {result['ppri_zone']} | Aléa: {result.get('niveau_alea_inondation', '')}")
+    except Exception as e:
+        log(f"    Géorisques inondation erreur : {e}")
+        result["zone_inondable"] = "N/D"
+
+    log(f"  Géorisques : sismique={result['zone_sismique']} | RGA={result['alea_rga']} | inondation={result.get('zone_inondable', 'N/D')}")
     return result
 
 
@@ -696,58 +772,6 @@ def main():
     else:
         print(output_json)
 
-
-
-
-# ─── Alias publics pour app.py ────────────────────────────────────────────────
-
-def collect_bss(lat: float, lon: float, emprise_m: float = 1000,
-                code_site: str = None, verbose: bool = False) -> dict:
-    """
-    Alias public de collect_site() pour l'interface Streamlit.
-    Retourne le résultat d'un site unique (dict).
-    """
-    site_input = {"lat": lat, "lon": lon, "emprise_m": emprise_m}
-    if code_site:
-        site_input["code_site"] = code_site
-    return collect_site(site_input, verbose=verbose)
-
-
-def parse_batch_input(text: str) -> list[dict]:
-    """
-    Parse une saisie texte multi-sites pour le mode batch de l'interface Streamlit.
-    Formats acceptés (une entrée par ligne) :
-      - JSON objet  : {"lat": 43.61, "lon": 3.88, "emprise_m": 500}
-      - CSV simple  : 43.61,3.88,500   (lat,lon[,emprise_m])
-      - Coordonnées : 43.61 3.88
-    Retourne une liste de dicts avec les clés lat, lon, emprise_m.
-    """
-    results = []
-    for raw_line in text.strip().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        # Tentative JSON
-        if line.startswith("{"):
-            try:
-                obj = json.loads(line)
-                if "lat" in obj and "lon" in obj:
-                    obj.setdefault("emprise_m", 1000)
-                    results.append(obj)
-                    continue
-            except json.JSONDecodeError:
-                pass
-        # Tentative CSV ou espace
-        sep = "," if "," in line else None
-        parts = [p.strip() for p in (line.split(sep) if sep else line.split())]
-        try:
-            lat = float(parts[0])
-            lon = float(parts[1])
-            emprise_m = float(parts[2]) if len(parts) > 2 else 1000
-            results.append({"lat": lat, "lon": lon, "emprise_m": emprise_m})
-        except (IndexError, ValueError):
-            pass  # Ligne ignorée si non parseable
-    return results
 
 if __name__ == "__main__":
     main()

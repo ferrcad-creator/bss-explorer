@@ -1,5 +1,5 @@
 """
-BSS Explorer — Application Streamlit v12
+BSS Explorer — Application Streamlit v14
 =========================================
 Collecte hydrogéologique automatisée depuis la Banque du Sous-Sol BRGM.
 
@@ -14,6 +14,11 @@ Paramètres de sortie JSON :
   NOuvALog    = Nombre d'ouvrages avec log géologique (u)
   IZS         = Zone sismique
   IARGA       = Aléa RGA
+  IZINOND     = Zone inondable PPRI (Oui/Non/N/D)
+  PPRI_nom    = Nom du PPRI applicable
+  PPRI_zone   = Libellé de la zone réglementaire
+  PPRI_alea   = Niveau d'aléa inondation (Fort/Moyen/Précaution/Prescriptions)
+  PPRI_reglement = Libellé du règlement standardisé
   ouvrages[]:
     COM         = Commune
     BDCE        = Bassin DCE
@@ -148,6 +153,11 @@ def build_output_json(result: dict, site_input: dict) -> dict:
         "NOuvALog":  sum(1 for o in ouvrages_raw if o.get("log_geologique")),
         "IZS":       geo.get("zone_sismique", ""),
         "IARGA":     geo.get("alea_rga", ""),
+        "IZINOND":   geo.get("zone_inondable", ""),
+        "PPRI_nom":  geo.get("ppri_nom", ""),
+        "PPRI_zone": geo.get("ppri_zone", ""),
+        "PPRI_alea": geo.get("niveau_alea_inondation", ""),
+        "PPRI_reglement": geo.get("ppri_reglement", ""),
         "ouvrages":  ouvrages_out,
     }
     return output
@@ -317,6 +327,18 @@ def build_folium_map(ouvrages: list, lat_centre: float, lon_centre: float,
             geo_html += f'<tr><td style="color:#666;font-size:11px;">IZS</td><td style="font-size:11px;"><b>{geo["zone_sismique"]}</b></td></tr>'
         if geo.get("alea_rga"):
             geo_html += f'<tr><td style="color:#666;font-size:11px;">IARGA</td><td style="font-size:11px;"><b>{geo["alea_rga"]}</b></td></tr>'
+        zi = geo.get("zone_inondable", "")
+        if zi:
+            zi_col = "#ef4444" if zi == "Oui" else "#22c55e" if zi == "Non" else "#888"
+            zi_txt = zi
+            if zi == "Oui":
+                niveau = geo.get("niveau_alea_inondation", "")
+                ppri_z = geo.get("ppri_zone", "")
+                if niveau:
+                    zi_txt += f" ({niveau})"
+                if ppri_z:
+                    zi_txt += f"<br><span style='font-size:10px;color:#999;'>{ppri_z}</span>"
+            geo_html += f'<tr><td style="color:#666;font-size:11px;">IZINOND</td><td style="font-size:11px;"><b style="color:{zi_col};">{zi_txt}</b></td></tr>'
 
         prof_tot = o.get("profondeur_totale")
         prof_inv = o.get("prof_investigation")
@@ -383,11 +405,24 @@ def build_folium_map(ouvrages: list, lat_centre: float, lon_centre: float,
     )
     geo_legend = ""
     if georisques:
+        zi = georisques.get("zone_inondable", "N/D")
+        zi_color = "#ef4444" if zi == "Oui" else "#22c55e" if zi == "Non" else "#888"
+        zi_extra = ""
+        if zi == "Oui":
+            ppri = georisques.get("ppri_nom", "")
+            niveau = georisques.get("niveau_alea_inondation", "")
+            zone_lib = georisques.get("ppri_zone", "")
+            zi_extra = f' ({niveau})' if niveau else ''
+            if ppri:
+                zi_extra += f'<br><span style="font-size:10px;color:#666;">PPRI : {ppri}</span>'
+            if zone_lib:
+                zi_extra += f'<br><span style="font-size:10px;color:#666;">{zone_lib}</span>'
         geo_legend = (
             f'<hr style="border-color:#ccc;margin:6px 0;">'
             f'<div style="font-size:12px;color:#111;font-weight:600;margin-bottom:4px;">⚡ Géorisques</div>'
             f'<div style="font-size:11px;color:#111;">IZS : <b>{georisques.get("zone_sismique","N/D")}</b></div>'
             f'<div style="font-size:11px;color:#111;">IARGA : <b>{georisques.get("alea_rga","N/D")}</b></div>'
+            f'<div style="font-size:11px;color:#111;">IZINOND : <b style="color:{zi_color};">{zi}{zi_extra}</b></div>'
         )
     legend_html = f"""
 <div style="position:fixed;bottom:30px;left:30px;z-index:1000;background:rgba(255,255,255,0.97);
@@ -657,6 +692,10 @@ Résultats
 Ouvrages trouvés  : {len(ouvrages)}
 Zone sismique     : {(geo or {}).get('zone_sismique', 'N/A')}
 Aléa RGA          : {(geo or {}).get('alea_rga', 'N/A')}
+Zone inondable    : {(geo or {}).get('zone_inondable', 'N/A')}
+PPRI              : {(geo or {}).get('ppri_nom', 'N/A')}
+Zone PPRI         : {(geo or {}).get('ppri_zone', 'N/A')}
+Aléa inondation   : {(geo or {}).get('niveau_alea_inondation', 'N/A')}
 Documents téléchargés : {doc_count}
 
 Contenu du ZIP
@@ -696,16 +735,14 @@ def render_result_tabs(result: dict, site_input: dict):
 
     nb_logs = sum(1 for o in ouvrages if o.get("log_geologique"))
 
-    # ── Métriques ──────────────────────────────────────────────────────────────
-    m1, m2, m3, m4, m5 = st.columns(5)
+    # ── Métriques ──────────────────────────────────────────────────────────────────────
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
     with m1:
         st.metric("NOuv", result.get("nb_ouvrages", 0))
     with m2:
-        # IZS — texte complet, taille réduite si long
         izs = geo.get("zone_sismique", "N/A") or "N/A"
         st.metric("IZS", izs)
     with m3:
-        # IARGA — valeur complète, taille réduite via HTML pour éviter la troncature
         iarga = geo.get("alea_rga", "N/A") or "N/A"
         st.markdown(
             '<p style="font-size:11px;color:rgba(250,250,250,0.6);margin:0 0 4px 0;">IARGA</p>'
@@ -713,9 +750,26 @@ def render_result_tabs(result: dict, site_input: dict):
             unsafe_allow_html=True,
         )
     with m4:
+        # IZINOND — Zone inondable PPRI
+        zi = geo.get("zone_inondable", "N/D") or "N/D"
+        zi_color = "#ef4444" if zi == "Oui" else "#22c55e" if zi == "Non" else "#888"
+        zi_detail = ""
+        if zi == "Oui":
+            niveau = geo.get("niveau_alea_inondation", "")
+            ppri_zone = geo.get("ppri_zone", "")
+            zi_detail = f" ({niveau})" if niveau else ""
+            if ppri_zone:
+                zi_detail += f"<br><span style='font-size:10px;color:rgba(250,250,250,0.5);'>{ppri_zone}</span>"
+        st.markdown(
+            '<p style="font-size:11px;color:rgba(250,250,250,0.6);margin:0 0 4px 0;">IZINOND</p>'
+            f'<p style="font-size:13px;font-weight:700;color:{zi_color};margin:0;line-height:1.3;">'
+            f'{zi}{zi_detail}</p>',
+            unsafe_allow_html=True,
+        )
+    with m5:
         if closest:
             st.metric("DOuvPC", f"{closest.get('distance_centre_m', 0):.0f} m")
-    with m5:
+    with m6:
         st.metric("NOuvALog", nb_logs)
 
     # ── Ouvrage le plus proche ─────────────────────────────────────────────────
@@ -1146,7 +1200,7 @@ elif page == "ℹ️ À propos":
 |--------|-------------|
 | [BRGM WFS](https://geoservices.brgm.fr/geologie) | Ouvrages BSS (forages, piézomètres, puits) |
 | [InfoTerre BRGM](http://ficheinfoterre.brgm.fr) | Fiches détaillées (AltOuv, log géologique, PIOuv, PeS, documents numérisés) |
-| [Géorisques](https://www.georisques.gouv.fr) | IZS (zone sismique), IARGA (aléa RGA) |
+| [Géorisques](https://www.georisques.gouv.fr) | IZS (zone sismique), IARGA (aléa RGA), IZINOND (zone inondable PPRI) |
 | [ADES](https://ades.eaufrance.fr) | Données piézométriques nationales |
 
 ### Nomenclature des paramètres
@@ -1168,6 +1222,11 @@ elif page == "ℹ️ À propos":
 | `NOuvALog` | Nombre d'ouvrages avec log géologique | u |
 | `IZS` | Zone sismique | — |
 | `IARGA` | Aléa retrait-gonflement argiles | — |
+| `IZINOND` | Zone inondable PPRI | Oui / Non / N/D |
+| `PPRI_nom` | Nom du PPRI applicable | — |
+| `PPRI_zone` | Libellé de la zone réglementaire | — |
+| `PPRI_alea` | Niveau d'aléa inondation | Fort / Moyen / Précaution / Prescriptions |
+| `PPRI_reglement` | Libellé du règlement standardisé | — |
 
 **Sortie JSON (par ouvrage) :**
 
