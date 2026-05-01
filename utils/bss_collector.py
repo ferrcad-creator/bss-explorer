@@ -773,5 +773,54 @@ def main():
         print(output_json)
 
 
+def collect_bss(lat: float, lon: float, emprise_m: float = 1000,
+                code_site: str = None, verbose: bool = False) -> dict:
+    """
+    Alias public de collect_site() pour l'interface Streamlit.
+    Retourne le résultat d'un site unique (dict).
+    """
+    site_input = {"lat": lat, "lon": lon, "emprise_m": emprise_m}
+    if code_site:
+        site_input["code_site"] = code_site
+    return collect_site(site_input, verbose=verbose)
+
+
+def parse_batch_input(text: str) -> list[dict]:
+    """
+    Parse une saisie texte multi-sites pour le mode batch de l'interface Streamlit.
+    Formats acceptés (une entrée par ligne) :
+      - JSON objet  : {"lat": 43.61, "lon": 3.88, "emprise_m": 500}
+      - CSV simple  : 43.61,3.88,500   (lat,lon[,emprise_m])
+      - Coordonnées : 43.61 3.88
+    Retourne une liste de dicts avec les clés lat, lon, emprise_m.
+    """
+    results = []
+    for raw_line in text.strip().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Tentative JSON
+        if line.startswith("{"):
+            try:
+                obj = json.loads(line)
+                if "lat" in obj and "lon" in obj:
+                    obj.setdefault("emprise_m", 1000)
+                    results.append(obj)
+                    continue
+            except json.JSONDecodeError:
+                pass
+        # Tentative CSV ou espace
+        sep = "," if "," in line else None
+        parts = [p.strip() for p in (line.split(sep) if sep else line.split())]
+        try:
+            lat = float(parts[0])
+            lon = float(parts[1])
+            emprise_m = float(parts[2]) if len(parts) > 2 else 1000
+            results.append({"lat": lat, "lon": lon, "emprise_m": emprise_m})
+        except (IndexError, ValueError):
+            pass  # Ligne ignorée si non parseable
+    return results
+
+
 if __name__ == "__main__":
     main()
