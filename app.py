@@ -723,8 +723,22 @@ def build_zip_with_documents(result: dict, site_input: dict, ouvrages: list,
             except Exception:
                 pass
 
-        # 4. Documents InfoTerre par ouvrage
-        doc_count = 0
+        # 4. Documents InfoTerre par ouvrage (téléchargement parallèle)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _download_doc(task):
+            """Télécharge un document et retourne (archive_path, content) ou None."""
+            url, archive_path = task
+            try:
+                resp = req_lib.get(url, timeout=15, stream=True)
+                if resp.status_code == 200:
+                    return (archive_path, resp.content)
+            except Exception:
+                pass
+            return None
+
+        # Préparer la liste des tâches de téléchargement
+        download_tasks = []
         for o in ouvrages:
             docs = o.get("documents", [])
             if not docs:
@@ -737,28 +751,25 @@ def build_zip_with_documents(result: dict, site_input: dict, ouvrages: list,
                 nom = d.get("nom", f"doc_{idx}")
                 if not url or url == "#":
                     continue
-
-                # Déterminer le nom de fichier
                 scan_name = d.get("scan_name", "")
                 if scan_name:
                     filename = scan_name
                 else:
-                    # Extraire depuis l'URL
                     filename = nom.replace(" ", "_").replace("/", "_")
                     if not any(filename.lower().endswith(ext) for ext in ('.pdf', '.tif', '.tiff', '.jpg', '.png')):
                         filename += ".pdf"
+                archive_path = f"documents/{safe_code}/{filename}"
+                download_tasks.append((url, archive_path))
 
-                # Télécharger le document
-                try:
-                    resp = req_lib.get(url, timeout=15, stream=True)
-                    if resp.status_code == 200:
-                        content = resp.content
-                        archive_path = f"documents/{safe_code}/{filename}"
-                        zf.writestr(archive_path, content)
-                        doc_count += 1
-                except Exception:
-                    # Si le téléchargement échoue, on continue sans bloquer
-                    pass
+        # Téléchargement parallèle (8 threads)
+        doc_count = 0
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = {executor.submit(_download_doc, t): t for t in download_tasks}
+            for future in as_completed(futures):
+                result_dl = future.result()
+                if result_dl:
+                    zf.writestr(result_dl[0], result_dl[1])
+                    doc_count += 1
 
         # 5. README
         readme = f"""BSS Explorer — Export complet avec documents
@@ -876,8 +887,20 @@ def build_batch_zip(results: list) -> tuple:
             zf.writestr(f"{folder}/BSS_{cs_clean}_{_ts}.csv",
                         ("\ufeff" + "\n".join(csv_lines)).encode('utf-8'))
 
-            # 3. Documents InfoTerre par ouvrage
-            site_doc_count = 0
+            # 3. Documents InfoTerre par ouvrage (téléchargement parallèle)
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            def _dl_doc_batch(task):
+                url, archive_path = task
+                try:
+                    resp = req_lib.get(url, timeout=15, stream=True)
+                    if resp.status_code == 200:
+                        return (archive_path, resp.content)
+                except Exception:
+                    pass
+                return None
+
+            dl_tasks = []
             for o in ouvrages:
                 docs = o.get("documents", [])
                 if not docs:
@@ -897,13 +920,16 @@ def build_batch_zip(results: list) -> tuple:
                         filename = nom.replace(" ", "_").replace("/", "_")
                         if not any(filename.lower().endswith(ext) for ext in ('.pdf', '.tif', '.tiff', '.jpg', '.png')):
                             filename += ".pdf"
-                    try:
-                        resp = req_lib.get(url, timeout=15, stream=True)
-                        if resp.status_code == 200:
-                            zf.writestr(f"{folder}/documents/{safe_code}/{filename}", resp.content)
-                            site_doc_count += 1
-                    except Exception:
-                        pass
+                    dl_tasks.append((url, f"{folder}/documents/{safe_code}/{filename}"))
+
+            site_doc_count = 0
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                futures = {executor.submit(_dl_doc_batch, t): t for t in dl_tasks}
+                for future in as_completed(futures):
+                    res = future.result()
+                    if res:
+                        zf.writestr(res[0], res[1])
+                        site_doc_count += 1
 
             total_docs += site_doc_count
             zi = geo.get('zone_inondable', 'N/A')
