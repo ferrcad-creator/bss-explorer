@@ -882,19 +882,25 @@ def render_result_tabs(result: dict, site_input: dict):
         # ZIP complet avec documents InfoTerre classés par ouvrage
         nb_docs_total = sum(len(o.get("documents", [])) for o in ouvrages)
         zip_label = f"📦 ZIP + {nb_docs_total} doc(s)" if nb_docs_total > 0 else "📦 ZIP complet"
-        if st.button(zip_label, use_container_width=True,
+        # Générer le ZIP au clic (session_state pour éviter DuplicateElementId)
+        zip_key = f"zip_btn_{_cs_clean}"
+        if zip_key not in st.session_state:
+            st.session_state[zip_key] = None
+        if st.button(zip_label, use_container_width=True, key=zip_key + "_trigger",
                      help="Télécharge un ZIP contenant le JSON, le CSV, la carte HTML "
                           "et tous les documents InfoTerre classés par ouvrage."):
             with st.spinner(f"Préparation du ZIP ({nb_docs_total} document(s) InfoTerre)..."):
-                zip_data = build_zip_with_documents(
+                st.session_state[zip_key] = build_zip_with_documents(
                     result, site_input, ouvrages, lat_c, lon_c, emprise, cs, geo
                 )
+        if st.session_state[zip_key] is not None:
             st.download_button(
                 "⬇️ Télécharger le ZIP",
-                data=zip_data,
+                data=st.session_state[zip_key],
                 file_name=f"BSS_{_cs_clean}_{_ts}.zip",
                 mime="application/zip",
                 use_container_width=True,
+                key=zip_key + "_download",
             )
 
 
