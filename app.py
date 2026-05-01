@@ -177,6 +177,9 @@ st.markdown("""
     .main-header p  { color: #90a4ae; margin: 0.3rem 0 0 0; font-size: 0.9rem; }
     .stButton > button { border-radius: 8px; }
     div[data-testid="stSidebar"] { background: #0a1628; }
+    /* IARGA : réduire la valeur de la métrique pour éviter la troncature */
+    [data-testid="stMetric"][aria-label="IARGA"] [data-testid="stMetricValue"] > div,
+    [data-testid="stMetricValue"] p { font-size: 1rem !important; white-space: normal !important; word-break: break-word !important; }
     /* Popup modal documents */
     .doc-modal-overlay {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -556,9 +559,13 @@ def render_result_tabs(result: dict, site_input: dict):
         izs = geo.get("zone_sismique", "N/A") or "N/A"
         st.metric("IZS", izs)
     with m3:
-        # IARGA — st.metric standard (même taille que les autres métriques)
+        # IARGA — valeur complète, taille réduite via HTML pour éviter la troncature
         iarga = geo.get("alea_rga", "N/A") or "N/A"
-        st.metric("IARGA", iarga)
+        st.markdown(
+            '<p style="font-size:11px;color:rgba(250,250,250,0.6);margin:0 0 4px 0;">IARGA</p>'
+            f'<p style="font-size:13px;font-weight:700;color:#fff;margin:0;line-height:1.3;word-break:break-word;white-space:normal;">{iarga}</p>',
+            unsafe_allow_html=True,
+        )
     with m4:
         if closest:
             st.metric("DOuvPC", f"{closest.get('distance_centre_m', 0):.0f} m")
